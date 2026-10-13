@@ -85,6 +85,7 @@ footer{padding:20px clamp(16px,4vw,48px);border-top:1px solid #ffffff12;color:va
 <footer>Aakalan Simulation Lab · Educational virtual environment · Demo data only · Not investment advice · No real-money orders</footer>
 <div class="modal-backdrop" id="modal"><div class="modal"><h2 id="modalTitle">Create your player profile</h2><p id="modalText">Authentication is not connected in this preview. Enter a nickname to personalise your local demo profile.</p><div class="field"><label for="nickname">Player nickname</label><input id="nickname" type="text" maxlength="24" placeholder="e.g. StrategyStar"></div><div class="hero-actions"><button class="primary" id="saveProfile">Save local profile</button><button id="closeModal">Cancel</button></div><p style="font-size:11px">Do not enter passwords or sensitive personal information in this prototype.</p></div></div>
 <div class="toast" id="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const state={lang:'en',game:null,style:'round',rounds:0,xp:0,cash:100000,businessValue:100000,roi:null,returns:0,best:null,badges:[],nickname:'Guest',history:[],lastResult:null,portfolio:100000};
