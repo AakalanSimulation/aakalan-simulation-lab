@@ -396,7 +396,7 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_R5fwoYfnnqNLJ7KsUGDgQg_fAKHHw0q
       console.info('Aakalan attempt started and synced.');
     } catch (error) {
       console.error('Attempt could not be synced:', error);
-      toast('Game playable, but attempt syncing failed. Check the database permissions.');
+toast('Attempt sync failed: ' + (error?.message || error?.code || String(error)));
     }
   }
 
