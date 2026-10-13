@@ -85,7 +85,7 @@ footer{padding:20px clamp(16px,4vw,48px);border-top:1px solid #ffffff12;color:va
 <footer>Aakalan Simulation Lab · Educational virtual environment · Demo data only · Not investment advice · No real-money orders</footer>
 <div class="modal-backdrop" id="modal"><div class="modal"><h2 id="modalTitle">Create your player profile</h2><p id="modalText">Authentication is not connected in this preview. Enter a nickname to personalise your local demo profile.</p><div class="field"><label for="nickname">Player nickname</label><input id="nickname" type="text" maxlength="24" placeholder="e.g. StrategyStar"></div><div class="hero-actions"><button class="primary" id="saveProfile">Save local profile</button><button id="closeModal">Cancel</button></div><p style="font-size:11px">Do not enter passwords or sensitive personal information in this prototype.</p></div></div>
 <div class="toast" id="toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ase/ase-js@2"></script>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const state={lang:'en',game:null,style:'round',rounds:0,xp:0,cash:100000,businessValue:100000,roi:null,returns:0,best:null,badges:[],nickname:'Guest',history:[],lastResult:null,portfolio:100000};
@@ -131,5 +131,215 @@ $('#gameSearch').addEventListener('input',e=>{let q=e.target.value.toLowerCase()
 if(state.lang==='hi')translate();renderStats();
 const SUPABASE_URL = 'https://oqmahybyvmdmzodxlgay.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_R5fwoYfnnqNLJ7KsUGDgQg_fAKHHw0q';
+  
+(function attachSupabaseAuth() {
+  let mode = 'signin';
+  let currentUser = null;
+
+  const authClient = window.supabase?.createClient
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    : null;
+  const modal = $('#modal');
+  const message = () => $('#authMessage');
+  const say = (en, hi) => state.lang === 'hi' ? hi : en;
+
+  modal.innerHTML = `
+    <div class="modal">
+      <h2 id="modalTitle"></h2>
+      <p id="modalText"></p>
+      <div id="authFields">
+        <div class="field">
+          <label for="authEmail">Email address / ईमेल पता</label>
+          <input id="authEmail" type="email" maxlength="254"
+            autocomplete="email" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="authPassword">Password / पासवर्ड</label>
+          <input id="authPassword" type="password" minlength="8"
+            maxlength="128" autocomplete="current-password"
+            required placeholder="Enter password">
+        </div>
+      </div>
+      <div class="field" id="nicknameField" hidden>
+        <label for="nickname">Player nickname / खिलाड़ी का नाम</label>
+        <input id="nickname" type="text" maxlength="24"
+          placeholder="e.g. StrategyStar">
+      </div>
+      <p id="authMessage" role="status" aria-live="polite"></p>
+      <div class="hero-actions">
+        <button class="primary" id="saveProfile" type="button">Sign in</button>
+        <button id="toggleAuthMode" type="button"></button>
+        <button id="signOutBtn" type="button" hidden>Sign out</button>
+        <button id="closeModal" type="button">Close</button>
+      </div>
+      <p style="font-size:11px">Never share your password. Your nickname is saved in this browser for now.</p>
+    </div>`;
+
+  function render() {
+    const loggedIn = !!currentUser;
+    $('#authFields').hidden = loggedIn;
+    $('#nicknameField').hidden = !loggedIn;
+    $('#toggleAuthMode').hidden = loggedIn;
+    $('#signOutBtn').hidden = !loggedIn;
+
+    $('#modalTitle').textContent = loggedIn
+      ? say('Your Aakalan account', 'आपका आकलन खाता')
+      : say(mode === 'signup' ? 'Create your Aakalan account' : 'Sign in to Aakalan',
+            mode === 'signup' ? 'आकलन खाता बनाएँ' : 'आकलन में साइन इन करें');
+
+    $('#modalText').textContent = loggedIn
+      ? say('Signed in as ', 'साइन इन खाता: ') + (currentUser.email || '')
+      : say(mode === 'signup'
+          ? 'Create an account with your email. Email confirmation may be required.'
+          : 'Sign in using your email and password.',
+        mode === 'signup'
+          ? 'अपने ईमेल से खाता बनाएँ। ईमेल की पुष्टि आवश्यक हो सकती है।'
+          : 'अपने ईमेल और पासवर्ड से साइन इन करें।');
+
+    $('#saveProfile').textContent = loggedIn
+      ? say('Save nickname', 'नाम सहेजें')
+      : say(mode === 'signup' ? 'Create account' : 'Sign in',
+            mode === 'signup' ? 'खाता बनाएँ' : 'साइन इन');
+
+    $('#toggleAuthMode').textContent = say(
+      mode === 'signup' ? 'Already registered? Sign in' : 'New here? Create an account',
+      mode === 'signup' ? 'पहले से खाता है? साइन इन करें' : 'नए हैं? खाता बनाएँ'
+    );
+    $('#signOutBtn').textContent = say('Sign out', 'साइन आउट');
+    $('#signBtn').textContent = loggedIn
+      ? say('Account', 'खाता')
+      : say('Sign in', 'साइन इन');
+  }
+
+  async function refreshUser() {
+    if (!authClient) {
+      message().textContent = say(
+        'Authentication library unavailable. Refresh the page.',
+        'ऑथेंटिकेशन लाइब्रेरी उपलब्ध नहीं है। पेज रीफ्रेश करें।'
+      );
+      return;
+    }
+    const { data, error } = await authClient.auth.getSession();
+    if (error) throw error;
+    currentUser = data.session?.user || null;
+    render();
+  }
+
+  $('#signBtn').onclick = async () => {
+    modal.classList.add('show');
+    try {
+      await refreshUser();
+      if (currentUser) message().textContent = say('You are signed in.', 'आप साइन इन हैं।');
+    } catch (error) {
+      message().textContent = error.message;
+    }
+  };
+
+  $('#closeModal').onclick = () => modal.classList.remove('show');
+
+  $('#toggleAuthMode').onclick = () => {
+    mode = mode === 'signin' ? 'signup' : 'signin';
+    $('#authPassword').value = '';
+    $('#authPassword').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+    message().textContent = '';
+    render();
+  };
+
+  $('#saveProfile').onclick = async () => {
+    if (currentUser) {
+      const nickname = $('#nickname').value.trim();
+      if (nickname) state.nickname = nickname;
+      save();
+      renderStats();
+      message().textContent = say(
+        'Nickname saved in this browser.', 'नाम इस ब्राउज़र में सहेजा गया है।'
+      );
+      return;
+    }
+
+    if (!authClient) {
+      message().textContent = say('Authentication is unavailable. Refresh the page.',
+        'ऑथेंटिकेशन उपलब्ध नहीं है। पेज रीफ्रेश करें।');
+      return;
+    }
+
+    const email = $('#authEmail').value.trim().toLowerCase();
+    const password = $('#authPassword').value;
+
+    if (!$('#authEmail').checkValidity() || !email) {
+      message().textContent = say('Enter a valid email address.', 'सही ईमेल पता दर्ज करें।');
+      return;
+    }
+    if (!password || (mode === 'signup' && password.length < 8)) {
+      message().textContent = say(
+        'Use at least 8 characters for a new account password.',
+        'नए खाते के पासवर्ड में कम-से-कम 8 अक्षर रखें।'
+      );
+      return;
+    }
+
+    const button = $('#saveProfile');
+    button.disabled = true;
+    message().textContent = say('Please wait…', 'कृपया प्रतीक्षा करें…');
+
+    try {
+      if (mode === 'signup') {
+        const { data, error } = await authClient.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: 'https://aakalansimulation.github.io/aakalan-simulation-lab/'
+          }
+        });
+        if (error) throw error;
+
+        if (!data.session) {
+          mode = 'signin';
+          render();
+          $('#authPassword').value = '';
+          message().textContent = say(
+            'Account request received. Check your email for the confirmation link, then sign in.',
+            'खाता अनुरोध स्वीकार हुआ। ईमेल में पुष्टि लिंक खोलें, फिर साइन इन करें।'
+          );
+          return;
+        }
+        currentUser = data.user || data.session.user;
+      } else {
+        const { data, error } = await authClient.auth.signInWithPassword({
+          email, password
+        });
+        if (error) throw error;
+        currentUser = data.user || data.session?.user || null;
+      }
+
+      render();
+      message().textContent = say('Signed in successfully.', 'सफलतापूर्वक साइन इन हो गए।');
+      toast(say('Signed in successfully.', 'साइन इन सफल।'));
+    } catch (error) {
+      console.error('Aakalan authentication error:', error);
+      message().textContent = error.message || say(
+        'Sign-in failed. Please try again.', 'साइन इन नहीं हो सका। फिर कोशिश करें।'
+      );
+    } finally {
+      button.disabled = false;
+    }
+  };
+
+  $('#signOutBtn').onclick = async () => {
+    if (!authClient) return;
+    const { error } = await authClient.auth.signOut();
+    if (error) {
+      message().textContent = error.message;
+      return;
+    }
+    currentUser = null;
+    mode = 'signin';
+    render();
+    message().textContent = say('You have signed out.', 'आप साइन आउट हो गए हैं।');
+  };
+
+  render();
+})();
+
 </script>
 </body></html>
