@@ -174,6 +174,7 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_R5fwoYfnnqNLJ7KsUGDgQg_fAKHHw0q
       </div>
       <p style="font-size:11px">Never share your password. Your nickname is saved in this browser for now.</p>
     </div>`;
+  
 
   function render() {
     const loggedIn = !!currentUser;
@@ -337,6 +338,164 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_R5fwoYfnnqNLJ7KsUGDgQg_fAKHHw0q
     render();
     message().textContent = say('You have signed out.', 'आप साइन आउट हो गए हैं।');
   };
+  
+  // Sync signed-in profiles and game attempts with Supabase.
+  let activeAttemptId = null;
+  let syncedProfileUserId = null;
+
+  async function syncProfileToDatabase() {
+    if (!authClient || !currentUser) return;
+
+    const enteredName = ($('#nickname')?.value || '').trim();
+    const emailName = (currentUser.email || 'Player').split('@')[0];
+    const displayName = (
+      enteredName ||
+      (state.nickname !== 'Guest' ? state.nickname : emailName)
+    ).slice(0, 24);
+
+    const { error } = await authClient
+      .from('profiles')
+      .upsert({
+        user_id: currentUser.id,
+        display_name: displayName,
+        preferred_language: state.lang === 'hi' ? 'hi' : 'en'
+      }, { onConflict: 'user_id' });
+
+    if (error) throw error;
+  }
+
+  async function startTrackedAttempt() {
+    if (!authClient || !currentUser || !state.game) return;
+
+    try {
+      if (activeAttemptId) {
+        await authClient
+          .from('simulation_attempts')
+          .update({
+            status: 'abandoned',
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', activeAttemptId)
+          .eq('user_id', currentUser.id);
+
+        activeAttemptId = null;
+      }
+
+      const { data, error } = await authClient
+        .from('simulation_attempts')
+        .insert({
+          user_id: currentUser.id,
+          game_id: state.game,
+          status: 'started'
+        })
+        .select('id')
+        .single();
+
+      if (error) throw error;
+      activeAttemptId = data.id;
+      console.info('Aakalan attempt started and synced.');
+    } catch (error) {
+      console.error('Attempt could not be synced:', error);
+      toast('Game playable, but attempt syncing failed. Check the database permissions.');
+    }
+  }
+
+  async function completeTrackedAttempt() {
+    if (!authClient || !currentUser || !activeAttemptId || !state.lastResult) return;
+
+    const attemptId = activeAttemptId;
+
+    try {
+      const { error } = await authClient
+        .from('simulation_attempts')
+        .update({
+          status: 'completed',
+          score: Number(state.lastResult.pct),
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', attemptId)
+        .eq('user_id', currentUser.id);
+
+      if (error) throw error;
+      activeAttemptId = null;
+      console.info('Aakalan attempt completed and synced.');
+    } catch (error) {
+      console.error('Attempt result could not be synced:', error);
+      toast('Result saved locally, but database syncing failed.');
+    }
+  }
+
+  // Create or refresh a profile after authentication.
+  authClient?.auth.onAuthStateChange((event, session) => {
+    currentUser = session?.user || null;
+
+    if (!currentUser) {
+      syncedProfileUserId = null;
+      activeAttemptId = null;
+      return;
+    }
+
+    if (syncedProfileUserId === currentUser.id) return;
+    syncedProfileUserId = currentUser.id;
+
+    // Run after the authentication callback has finished.
+    setTimeout(() => {
+      syncProfileToDatabase().catch(error => {
+        syncedProfileUserId = null;
+        console.error('Profile syncing failed:', error);
+        if ($('#authMessage')) {
+          $('#authMessage').textContent =
+            'Signed in, but profile syncing failed: ' + error.message;
+        }
+      });
+    }, 0);
+  });
+
+  // Also sync when a signed-in player saves their nickname.
+  $('#saveProfile').addEventListener('click', () => {
+    if (!currentUser) return;
+
+    setTimeout(() => {
+      syncProfileToDatabase()
+        .then(() => {
+          if ($('#authMessage')) {
+            $('#authMessage').textContent = 'Profile synced to your account.';
+          }
+        })
+        .catch(error => {
+          console.error('Profile syncing failed:', error);
+          if ($('#authMessage')) {
+            $('#authMessage').textContent =
+              'Profile syncing failed: ' + error.message;
+          }
+        });
+    }, 0);
+  });
+
+  // Start a database record whenever a signed-in player launches a game.
+  document.addEventListener('click', event => {
+    const launchButton = event.target.closest(
+      '.startGame, #playBtn, #randomBtn'
+    );
+    if (!launchButton) return;
+
+    setTimeout(() => {
+      if (state.game) void startTrackedAttempt();
+    }, 0);
+  });
+
+  // Record completion only if resolving the round produced a new result.
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#resolveBtn')) return;
+
+    const previousResult = state.lastResult;
+    setTimeout(() => {
+      if (state.lastResult && state.lastResult !== previousResult) {
+        void completeTrackedAttempt();
+      }
+    }, 0);
+  }, true);
+
 
   render();
 })();
